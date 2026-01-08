@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 interface ClaimRequest {
   _id: string;
@@ -14,10 +15,12 @@ interface ClaimRequest {
 }
 
 export default function UnifiedAdminDashboard() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'Travel' | 'Health' | 'Vehicle'>('Travel');
   const [requests, setRequests] = useState<ClaimRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const adminName = "Admin User";
+  const [adminEmail, setAdminEmail] = useState<string>('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Mock data fetching logic - replace with your actual backend URL
   const fetchRequests = async (type: string) => {
@@ -27,14 +30,14 @@ export default function UnifiedAdminDashboard() {
       // For now, we use a timeout to simulate a backend call
       setTimeout(() => {
         const mockData: ClaimRequest[] = [
-          { 
-            _id: '1', 
-            userId: 'Faizan_1247P9', 
-            insuranceType: `${type} Insurance`, 
-            riskScore: 'Medium', 
-            severity: 'Normal', 
+          {
+            _id: '1',
+            userId: 'Faizan_1247P9',
+            insuranceType: `${type} Insurance`,
+            riskScore: 'Medium',
+            severity: 'Normal',
             status: 'Pending',
-            documentUrl: '#' 
+            documentUrl: '#'
           }
         ];
         setRequests(mockData);
@@ -46,10 +49,75 @@ export default function UnifiedAdminDashboard() {
     }
   };
 
+  // Check authentication on mount
+  useEffect(() => {
+    const verifyAuth = async () => {
+      const token = sessionStorage.getItem('adminToken');
+
+      if (!token) {
+        router.push('/Admin');
+        return;
+      }
+
+      try {
+        const response = await fetch('/api/admin/verify', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setAdminEmail(data.admin.email);
+          setIsAuthenticated(true);
+        } else {
+          sessionStorage.removeItem('adminToken');
+          router.push('/Admin');
+        }
+      } catch (error) {
+        console.error('Auth verification failed:', error);
+        sessionStorage.removeItem('adminToken');
+        router.push('/Admin');
+      }
+    };
+
+    verifyAuth();
+  }, [router]);
+
+  // Auto-logout when admin presses browser back button and prevent forward navigation
+  useEffect(() => {
+    // Replace current history entry to prevent back navigation
+    window.history.pushState(null, '', window.location.href);
+
+    const handlePopState = async (e: PopStateEvent) => {
+      // Admin pressed back button - logout immediately
+      sessionStorage.removeItem('adminToken');
+
+      // Call logout API to clear cookie
+      await fetch('/api/admin/logout', {
+        method: 'POST',
+        keepalive: true,
+      });
+
+      // Redirect to login page
+      window.location.href = '/Admin';
+    };
+
+    // Listen for back button press
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchRequests(activeTab);
-  }, [activeTab]);
+    if (isAuthenticated) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchRequests(activeTab);
+    }
+  }, [activeTab, isAuthenticated]);
 
   const handleAction = async (id: string, action: 'Approved' | 'Rejected') => {
     try {
@@ -66,6 +134,37 @@ export default function UnifiedAdminDashboard() {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      // Call logout API to clear cookie
+      await fetch('/api/admin/logout', {
+        method: 'POST',
+      });
+
+      // Clear sessionStorage as well
+      sessionStorage.removeItem('adminToken');
+
+      // Redirect to login
+      router.push('/Admin');
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Still redirect even if API call fails
+      sessionStorage.removeItem('adminToken');
+      router.push('/Admin');
+    }
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Verifying authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-100 flex">
       {/* Sidebar Navigation */}
@@ -78,16 +177,18 @@ export default function UnifiedAdminDashboard() {
             <button
               key={type}
               onClick={() => setActiveTab(type as never)}
-              className={`w-full flex items-center space-x-3 p-3 rounded-lg transition ${
-                activeTab === type ? 'bg-blue-600' : 'hover:bg-slate-800'
-              }`}
+              className={`w-full flex items-center space-x-3 p-3 rounded-lg transition ${activeTab === type ? 'bg-blue-600' : 'hover:bg-slate-800'
+                }`}
             >
               <span>{type} Insurance</span>
             </button>
           ))}
         </nav>
         <div className="p-4 border-t border-slate-800">
-          <button className="w-full flex items-center justify-center space-x-2 p-3 bg-red-600 hover:bg-red-700 rounded-lg transition font-semibold">
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center space-x-2 p-3 bg-red-600 hover:bg-red-700 rounded-lg transition font-semibold"
+          >
             <span>Logout</span>
           </button>
         </div>
@@ -99,7 +200,7 @@ export default function UnifiedAdminDashboard() {
         <header className="bg-white shadow-sm px-8 py-4 flex justify-between items-center">
           <h2 className="text-xl font-semibold text-gray-800">{activeTab} Requests</h2>
           <div className="flex items-center space-x-4">
-            <span className="text-gray-600 font-medium">Welcome, <span className="text-blue-600">{adminName}</span></span>
+            <span className="text-gray-600 font-medium">Welcome, <span className="text-blue-600">{adminEmail}</span></span>
           </div>
         </header>
 
@@ -129,18 +230,17 @@ export default function UnifiedAdminDashboard() {
                           <button className="text-blue-600 underline">preview</button>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                            req.riskScore === 'High' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
-                          }`}>{req.riskScore}</span>
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold ${req.riskScore === 'High' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                            }`}>{req.riskScore}</span>
                         </td>
                         <td className="px-6 py-4">{req.severity}</td>
                         <td className="px-6 py-4 text-center">
                           <div className="flex justify-center space-x-2">
-                            <button 
+                            <button
                               onClick={() => handleAction(req._id, 'Approved')}
                               className="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded-lg text-sm font-bold"
                             >Approve</button>
-                            <button 
+                            <button
                               onClick={() => handleAction(req._id, 'Rejected')}
                               className="bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-sm font-bold"
                             >Reject</button>

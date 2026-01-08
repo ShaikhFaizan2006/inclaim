@@ -48,7 +48,7 @@ export default function AdminLoginPage() {
         const data = await response.json();
         // Store token or session
         sessionStorage.setItem('adminToken', data.token);
-        router.push('/admin/dashboard');
+        router.push('/Admin/DashBoard');
       } else {
         const errorData = await response.json();
         setError(errorData.message || 'Invalid credentials');
